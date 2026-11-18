@@ -1,0 +1,6 @@
+{
+  "name": "Dream University",
+  "description": "AI-powered Bangladesh University Admission Guidance Platform — Find Your Dream. Build Your Future.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

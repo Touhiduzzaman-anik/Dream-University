@@ -1,0 +1,6 @@
+{
+  "summary":  "Implementation plan to expand Dream University's University Rankings dataset and backend API so 100% of PostgreSQL-seeded institutions (205+ active records) appear top-down inside the exact existing 5-column table with category filtering, tier-based ordering for unranked institutions, and 30-row progressive loading via a Load More button.",
+  "updatedAt":  "2026-11-16T12:55:03.051971779Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}
