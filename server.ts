@@ -144,18 +144,32 @@ async function findUserByAuthIdentifier(
   return rows[0] ?? null;
 }
 
+let initPromise: Promise<void> | null = null;
+
 export function createApp(): express.Express {
   const app = express();
 
   app.use(express.json({ limit: '20mb' }));
 
-  // Ensure initial seed runs lazily once on first API request (no eager startup DB probe)
+  // Ensure initial seed runs lazily once on first API request via a shared module-level promise
   app.use('/api', async (_req, res, next) => {
     try {
-      await ensureSeeded();
+      if (!initPromise) {
+        initPromise = ensureSeeded().catch((err: any) => {
+          initPromise = null;
+          throw err;
+        });
+      }
+      await initPromise;
       next();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Database initialization error:', error);
+      if (error?.cause) {
+        console.error('Database initialization error cause:', error.cause);
+      }
+      if (error?.message) {
+        console.error('Database initialization error message:', error.message);
+      }
       res.status(503).type('application/json').json({ error: 'Database service temporarily unavailable.' });
     }
   });

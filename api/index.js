@@ -137660,6 +137660,10 @@ async function ensureSeeded() {
   if (!seedPromise || lastSeededOwnerKey !== currentOwnerKey) {
     lastSeededOwnerKey = currentOwnerKey;
     seedPromise = runIdempotentSeed().catch((err) => {
+      console.error("[Seed Data] Seed execution error:", err);
+      if (err?.cause) {
+        console.error("[Seed Data] Underlying error cause:", err.cause);
+      }
       seedPromise = null;
       throw err;
     });
@@ -137667,7 +137671,19 @@ async function ensureSeeded() {
   return seedPromise;
 }
 async function ensurePostgresSchemaBootstrapped() {
-  await db.execute(sql`
+  try {
+    const tableProbe = await db.execute(sql`
+      SELECT to_regclass('public.users') AS users_table, to_regclass('public.institutions') AS inst_table;
+    `);
+    const probeRow = tableProbe.rows[0];
+    if (probeRow?.users_table && probeRow?.inst_table) {
+      return;
+    }
+  } catch (probeError) {
+    console.warn("[Schema Bootstrap] Table probe notice (will attempt creation):", probeError?.cause ?? probeError);
+  }
+  try {
+    await db.execute(sql`
     DO $$
     BEGIN
       CREATE TABLE IF NOT EXISTS users (
@@ -137860,10 +137876,13 @@ async function ensurePostgresSchemaBootstrapped() {
       ALTER TABLE circulars ADD COLUMN IF NOT EXISTS updated_by TEXT;
       ALTER TABLE admission_rules ADD COLUMN IF NOT EXISTS updated_by TEXT;
     EXCEPTION
-      WHEN insufficient_privilege THEN
+      WHEN duplicate_table OR duplicate_object OR unique_violation OR insufficient_privilege THEN
         NULL;
     END $$;
   `);
+  } catch (ddlError) {
+    console.warn("[Schema Bootstrap] DDL execution notice (ignoring if tables exist):", ddlError?.cause?.message ?? ddlError?.message ?? ddlError);
+  }
 }
 async function runIdempotentSeed() {
   await ensurePostgresSchemaBootstrapped();
@@ -139018,15 +139037,28 @@ async function findUserByAuthIdentifier(identifier, identifierType) {
   const rows = await db.select().from(users).where(or(eq(users.phone, identifier), eq(users.phone, `+88${identifier}`))).limit(1);
   return rows[0] ?? null;
 }
+var initPromise = null;
 function createApp() {
   const app2 = (0, import_express.default)();
   app2.use(import_express.default.json({ limit: "20mb" }));
   app2.use("/api", async (_req, res, next) => {
     try {
-      await ensureSeeded();
+      if (!initPromise) {
+        initPromise = ensureSeeded().catch((err) => {
+          initPromise = null;
+          throw err;
+        });
+      }
+      await initPromise;
       next();
     } catch (error2) {
       console.error("Database initialization error:", error2);
+      if (error2?.cause) {
+        console.error("Database initialization error cause:", error2.cause);
+      }
+      if (error2?.message) {
+        console.error("Database initialization error message:", error2.message);
+      }
       res.status(503).type("application/json").json({ error: "Database service temporarily unavailable." });
     }
   });

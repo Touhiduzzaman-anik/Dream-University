@@ -148,7 +148,11 @@ export async function ensureSeeded(): Promise<void> {
   const currentOwnerKey = `${process.env.ADMIN_EMAIL ?? ''}::${process.env.ADMIN_PASSWORD ?? ''}`;
   if (!seedPromise || lastSeededOwnerKey !== currentOwnerKey) {
     lastSeededOwnerKey = currentOwnerKey;
-    seedPromise = runIdempotentSeed().catch((err) => {
+    seedPromise = runIdempotentSeed().catch((err: any) => {
+      console.error('[Seed Data] Seed execution error:', err);
+      if (err?.cause) {
+        console.error('[Seed Data] Underlying error cause:', err.cause);
+      }
       seedPromise = null;
       throw err;
     });
@@ -157,9 +161,22 @@ export async function ensureSeeded(): Promise<void> {
 }
 
 async function ensurePostgresSchemaBootstrapped(): Promise<void> {
-  // Check if core tables already exist; if on a fresh Postgres/Neon database, create schema idempotently.
-  // Wrap each DDL in an insufficient_privilege handler so Cloud SQL non-owner app users never fail.
-  await db.execute(sql`
+  // 1. Fast path: check if core tables already exist. If so, skip DDL execution completely.
+  try {
+    const tableProbe = await db.execute(sql`
+      SELECT to_regclass('public.users') AS users_table, to_regclass('public.institutions') AS inst_table;
+    `);
+    const probeRow = tableProbe.rows[0] as { users_table?: string | null; inst_table?: string | null } | undefined;
+    if (probeRow?.users_table && probeRow?.inst_table) {
+      return;
+    }
+  } catch (probeError: any) {
+    console.warn('[Schema Bootstrap] Table probe notice (will attempt creation):', probeError?.cause ?? probeError);
+  }
+
+  // 2. Fresh database: execute schema creation idempotently.
+  try {
+    await db.execute(sql`
     DO $$
     BEGIN
       CREATE TABLE IF NOT EXISTS users (
@@ -352,10 +369,13 @@ async function ensurePostgresSchemaBootstrapped(): Promise<void> {
       ALTER TABLE circulars ADD COLUMN IF NOT EXISTS updated_by TEXT;
       ALTER TABLE admission_rules ADD COLUMN IF NOT EXISTS updated_by TEXT;
     EXCEPTION
-      WHEN insufficient_privilege THEN
+      WHEN duplicate_table OR duplicate_object OR unique_violation OR insufficient_privilege THEN
         NULL;
     END $$;
   `);
+  } catch (ddlError: any) {
+    console.warn('[Schema Bootstrap] DDL execution notice (ignoring if tables exist):', ddlError?.cause?.message ?? ddlError?.message ?? ddlError);
+  }
 }
 
 async function runIdempotentSeed(): Promise<void> {
