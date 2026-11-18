@@ -10,7 +10,7 @@
     "dev": "tsx server.ts",
     "build": "vite build && npm run build:server",
     "build:client": "vite build",
-    "build:server": "esbuild server.ts --bundle --platform=node --format=esm --target=node20 --external:vite --outfile=api/index.js",
+    "build:server": "esbuild server.ts --bundle --platform=node --format=esm --target=node20 --external:vite \"--banner:js=import { createRequire } from 'module'; const require = createRequire(import.meta.url);\" --outfile=api/index.js",
     "start": "node server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js api/index.js",
